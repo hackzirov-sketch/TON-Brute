@@ -14,7 +14,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.json ./
 COPY src/ ./src/
-RUN npm ci && npm run build && rm -rf node_modules src
+RUN npm ci && npm run build && rm -rf src && npm prune --omit=dev
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
