@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+*.log
+coverage/
+settings.json
+checked_seeds.txt
+found_wallets.txt

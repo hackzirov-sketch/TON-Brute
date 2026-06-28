@@ -1,0 +1,23 @@
+{
+  "name": "tonfinder-safe-recovery",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Read-only TON wallet recovery checker for a user-owned mnemonic",
+  "type": "module",
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ton/crypto": "^3.3.0",
+    "@ton/ton": "^16.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

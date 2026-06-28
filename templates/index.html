@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>TONfinder — Auto Scanner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700;750;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="TONfinder bosh sahifa">
+      <span class="brand-mark" aria-hidden="true">T</span>
+      <span>TONfinder</span>
+    </a>
+    <div class="topbar-actions">
+      <button class="icon-button" id="openSettings" type="button" aria-label="Sozlamalar">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <div class="local-badge"><span class="status-dot"></span> Faqat lokal</div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="auto-scanner">
+      <div class="auto-header">
+        <p class="step">AVTOMATIK SKANER</p>
+        <h2>24 so'zli mnemoniklarni avtomatik tekshirish</h2>
+      </div>
+
+      <div class="auto-controls">
+        <div class="auto-stats">
+          <div class="stat"><span class="stat-value" id="autoChecked">0</span><span class="stat-label">Tekshirilgan</span></div>
+          <div class="stat"><span class="stat-value" id="autoFound">0</span><span class="stat-label">Topilgan</span></div>
+          <div class="stat"><span class="stat-value" id="autoRate">0</span><span class="stat-label">/daq</span></div>
+          <div class="stat"><span class="stat-value" id="autoInterval">—</span><span class="stat-label">ms</span></div>
+        </div>
+        <div class="auto-controls-right">
+          <div class="auto-range-field">
+            <label for="autoRange">Range:</label>
+            <input id="autoRange" type="number" min="0" value="0" placeholder="0 = cheksiz">
+            <small>0 = cheksiz</small>
+          </div>
+          <div class="auto-buttons">
+            <button class="primary-button" id="autoStart" type="button" hidden>
+              <span class="button-label">Boshlash</span>
+              <span class="button-arrow" aria-hidden="true">▶</span>
+            </button>
+            <button class="primary-button" id="autoPause" type="button">
+              <span class="button-label">Pauza</span>
+              <span class="button-arrow" aria-hidden="true">⏸</span>
+            </button>
+            <button class="primary-button" id="autoResume" type="button" hidden>
+              <span class="button-label">Davom</span>
+              <span class="button-arrow" aria-hidden="true">▶</span>
+            </button>
+            <button class="primary-button danger-button" id="autoStop" type="button">
+              <span class="button-label">To'xtatish</span>
+              <span class="button-arrow" aria-hidden="true">■</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="autoCurrentSeed" class="auto-current-seed">
+        <span class="auto-current-label">Seed:</span>
+        <code id="autoCurrentSeedText" class="auto-seed-current">Ishga tushirilmoqda...</code>
+      </div>
+
+      <div id="autoStatus" class="alert" role="status" hidden></div>
+
+      <div id="autoFoundList" class="auto-found-list" hidden>
+        <p class="step" style="margin-bottom:16px">TOPILGAN HAMYONLAR</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="settingsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Sozlamalar" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-panel">
+      <div class="modal-heading">
+        <h2>Sozlamalar</h2>
+        <button class="icon-button" id="closeSettings" type="button" aria-label="Yopish">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <form id="settingsForm">
+        <div class="setting-field">
+          <label for="botToken">Bot Token</label>
+          <input id="botToken" name="bot_token" type="password" placeholder="1234567890:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" autocomplete="off" required>
+          <small>@BotFather dan olingan Telegram bot tokeni</small>
+        </div>
+        <div class="setting-field">
+          <label for="userId">Telegram User ID</label>
+          <input id="userId" name="user_id" type="text" placeholder="123456789" autocomplete="off" required>
+          <small>Xabar qaysi foydalanuvchiga yuborilishi</small>
+        </div>
+        <label class="switch-row setting-switch">
+          <span><strong>Bildirishnoma</strong><small>Balans &gt; 0 bo'lsa Telegramga xabar yuborish</small></span>
+          <input id="notifyEnabled" type="checkbox" role="switch">
+          <span class="switch" aria-hidden="true"></span>
+        </label>
+        <div id="settingsStatus" class="alert" role="alert" hidden></div>
+        <button class="primary-button" id="saveSettings" type="submit">
+          <span class="button-label">Sozlamalarni saqlash</span>
+          <span class="button-arrow" aria-hidden="true">→</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <footer>
+    <span>TONfinder · Auto Scanner</span>
+    <span>Barcha ma'lumotlar lokal qurilmada qayta ishlanadi</span>
+  </footer>
+</body>
+</html>
