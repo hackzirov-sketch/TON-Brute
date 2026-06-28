@@ -44,17 +44,12 @@
           <div class="stat"><span class="stat-value" id="autoInterval">—</span><span class="stat-label">ms</span></div>
         </div>
         <div class="auto-controls-right">
-          <div class="auto-range-field">
-            <label for="autoRange">Range:</label>
-            <input id="autoRange" type="number" min="0" value="0" placeholder="0 = cheksiz">
-            <small>0 = cheksiz</small>
-          </div>
           <div class="auto-buttons">
             <button class="primary-button" id="autoStart" type="button" hidden>
               <span class="button-label">Boshlash</span>
               <span class="button-arrow" aria-hidden="true">▶</span>
             </button>
-            <button class="primary-button" id="autoPause" type="button">
+            <button class="primary-button" id="autoPause" type="button" hidden>
               <span class="button-label">Pauza</span>
               <span class="button-arrow" aria-hidden="true">⏸</span>
             </button>
@@ -62,7 +57,7 @@
               <span class="button-label">Davom</span>
               <span class="button-arrow" aria-hidden="true">▶</span>
             </button>
-            <button class="primary-button danger-button" id="autoStop" type="button">
+            <button class="primary-button danger-button" id="autoStop" type="button" hidden>
               <span class="button-label">To'xtatish</span>
               <span class="button-arrow" aria-hidden="true">■</span>
             </button>

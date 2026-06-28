@@ -1,4 +1,4 @@
-const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
 
 const settingsModal = document.querySelector("#settingsModal");
 const openSettings = document.querySelector("#openSettings");
@@ -105,9 +105,14 @@ function addressBlock(label, address, secondary = false) {
   const copy = textElement("button", "copy-button", "Nusxa");
   copy.type = "button";
   copy.addEventListener("click", async () => {
-    await navigator.clipboard.writeText(address);
-    copy.textContent = "Tayyor";
-    window.setTimeout(() => { copy.textContent = "Nusxa"; }, 1200);
+    try {
+      await navigator.clipboard.writeText(address);
+      copy.textContent = "Tayyor";
+      window.setTimeout(() => { copy.textContent = "Nusxa"; }, 1200);
+    } catch {
+      copy.textContent = "Xatolik";
+      window.setTimeout(() => { copy.textContent = "Nusxa"; }, 1200);
+    }
   });
   row.append(copy);
   block.append(row);
@@ -126,10 +131,14 @@ const autoStatus = document.querySelector("#autoStatus");
 const autoFoundList = document.querySelector("#autoFoundList");
 const autoCurrentSeed = document.querySelector("#autoCurrentSeed");
 const autoCurrentSeedText = document.querySelector("#autoCurrentSeedText");
-const autoRange = document.querySelector("#autoRange");
+
+const MAX_FOUND_DOM = 50;
 
 let autoEventSource = null;
 let autoRunning = false;
+let autoReconnectAttempts = 0;
+const MAX_RECONNECT = 5;
+
 function autoShowStatus(msg, isError = false) {
   autoStatus.textContent = msg;
   autoStatus.className = "alert" + (isError ? "" : " alert-success");
@@ -156,9 +165,14 @@ function autoAddFound(data) {
   copySeed.className = "copy-button";
   copySeed.textContent = "Nusxa olish";
   copySeed.addEventListener("click", async () => {
-    await navigator.clipboard.writeText(data.mnemonic || "");
-    copySeed.textContent = "Tayyor";
-    window.setTimeout(() => { copySeed.textContent = "Nusxa olish"; }, 1200);
+    try {
+      await navigator.clipboard.writeText(data.mnemonic || "");
+      copySeed.textContent = "Tayyor";
+      window.setTimeout(() => { copySeed.textContent = "Nusxa olish"; }, 1200);
+    } catch {
+      copySeed.textContent = "Xatolik";
+      window.setTimeout(() => { copySeed.textContent = "Nusxa olish"; }, 1200);
+    }
   });
   seedRow.append(seedCode, copySeed);
 
@@ -182,26 +196,25 @@ function autoAddFound(data) {
 
   block.append(seedRow, grid);
   autoFoundList.insertBefore(block, autoFoundList.querySelector(".auto-found-block"));
+
+  const blocks = autoFoundList.querySelectorAll(".auto-found-block");
+  if (blocks.length > MAX_FOUND_DOM) {
+    blocks[blocks.length - 1].remove();
+  }
 }
 
-function startAutoScan() {
-  if (autoRunning) return;
-  autoHideStatus();
-  autoRunning = true;
-  autoStart.hidden = true;
-  autoPause.hidden = false;
-  autoResume.hidden = true;
-  autoStop.hidden = false;
-
-  const maxChecks = parseInt(autoRange.value, 10) || 0;
-  autoEventSource = new EventSource(`/api/auto/start?network=mainnet&max_checks=${maxChecks}`);
+function connectSSE() {
+  autoEventSource = new EventSource(`/api/auto/start?network=mainnet&max_checks=0`);
 
   autoEventSource.onmessage = (event) => {
+    autoReconnectAttempts = 0;
     try {
       const data = JSON.parse(event.data);
+      if (data.type === "progress" || data.type === "result") {
+        autoRestartsLeft = MAX_AUTO_RESTARTS;
+      }
       if (data.type === "started") {
         autoCurrentSeedText.textContent = "Tayyor...";
-        autoRange.disabled = true;
       } else if (data.type === "result") {
         autoCurrentSeedText.textContent = data.mnemonic || "";
         if (data.hasBalance) {
@@ -219,22 +232,28 @@ function startAutoScan() {
       } else if (data.type === "rate_limited") {
         autoShowStatus(`Rate limit: ${data.backoffMs}ms kutilmoqda...`, true);
       } else if (data.type === "stopped") {
+        autoChecked.textContent = data.checked;
+        autoFound.textContent = data.found;
         autoRunning = false;
         autoStart.hidden = false;
         autoPause.hidden = true;
         autoResume.hidden = true;
         autoStop.hidden = true;
-        autoRange.disabled = false;
-        autoCurrentSeedText.textContent = "To'xtatildi";
-        const reason = data.reason === "range_tugadi" ? "Range tugadi. " : "";
-        autoShowStatus(`${reason}Skaner to'xtadi. ${data.checked} ta tekshirildi, ${data.found} ta topildi.`);
-        autoChecked.textContent = data.checked;
-        autoFound.textContent = data.found;
+        if (data.reason === "range_tugadi") {
+          autoCurrentSeedText.textContent = "Range tugadi";
+          autoShowStatus(`Range tugadi. ${data.checked} ta tekshirildi, ${data.found} ta topildi.`);
+        } else {
+          autoCurrentSeedText.textContent = "To'xtatildi";
+          autoShowStatus(`Skaner to'xtadi. ${data.checked} ta tekshirildi, ${data.found} ta topildi.`);
+        }
+      } else if (data.type === "reconnecting") {
+        autoCurrentSeedText.textContent = `Qayta ulanmoqda (${data.attempt}/${data.max})...`;
       } else if (data.type === "fatal" || data.type === "error") {
         autoCurrentSeedText.textContent = "Xatolik";
         autoPause.hidden = true;
         autoResume.hidden = true;
         autoShowStatus(data.error || "Xatolik yuz berdi.", true);
+        autoRestartAfterDelay();
       }
     } catch {
       /* ignore */
@@ -242,35 +261,54 @@ function startAutoScan() {
   };
 
   autoEventSource.onerror = () => {
-    if (autoRunning) {
-      autoRunning = false;
-      autoStart.hidden = false;
-      autoPause.hidden = true;
-      autoResume.hidden = true;
-      autoStop.hidden = true;
-      autoRange.disabled = false;
-      autoCurrentSeedText.textContent = "Uzildi";
-      autoShowStatus("Ulanish uzildi.", true);
-    }
     if (autoEventSource) {
+      autoEventSource.onmessage = null;
+      autoEventSource.onerror = null;
       autoEventSource.close();
       autoEventSource = null;
+    }
+    if (autoRunning && autoReconnectAttempts < MAX_RECONNECT) {
+      autoReconnectAttempts++;
+      const backoff = Math.min(1000 * Math.pow(2, autoReconnectAttempts), 15000);
+      autoCurrentSeedText.textContent = `Qayta ulanmoqda (${autoReconnectAttempts}/${MAX_RECONNECT})...`;
+      setTimeout(connectSSE, backoff);
+    } else if (autoRunning) {
+      autoShowStatus("Ulanish uzildi. Qayta ulanmoqda...", true);
+      autoRestartAfterDelay();
     }
   };
 }
 
+function startAutoScan() {
+  if (autoRunning) return;
+  autoHideStatus();
+  autoReconnectAttempts = 0;
+  autoRunning = true;
+  autoStart.hidden = true;
+  autoPause.hidden = false;
+  autoResume.hidden = true;
+  autoStop.hidden = false;
+  connectSSE();
+}
+
 function stopAutoScan() {
   if (autoEventSource) {
+    autoEventSource.onmessage = null;
+    autoEventSource.onerror = null;
     autoEventSource.close();
     autoEventSource = null;
   }
+  if (autoRestartTimer) {
+    clearTimeout(autoRestartTimer);
+    autoRestartTimer = null;
+  }
+  autoRestartsLeft = MAX_AUTO_RESTARTS;
   fetch("/api/auto/stop", { method: "POST" }).catch(() => {});
   autoRunning = false;
   autoStart.hidden = false;
   autoPause.hidden = true;
   autoResume.hidden = true;
   autoStop.hidden = true;
-  autoRange.disabled = false;
   autoCurrentSeedText.textContent = "To'xtatildi";
 }
 
@@ -288,4 +326,35 @@ autoResume.addEventListener("click", () => {
 autoStop.addEventListener("click", stopAutoScan);
 autoStart.addEventListener("click", startAutoScan);
 
-startAutoScan();
+let autoRestartTimer = null;
+const AUTO_RESTART_DELAY = 5000;
+const MAX_AUTO_RESTARTS = 10;
+let autoRestartsLeft = MAX_AUTO_RESTARTS;
+
+function autoRestartAfterDelay() {
+  if (autoRestartTimer) return;
+  if (autoRestartsLeft <= 0) return;
+  autoRestartsLeft--;
+  autoRestartTimer = window.setTimeout(() => {
+    autoRestartTimer = null;
+    if (!autoRunning) {
+      autoShowStatus(`Avtomatik qayta ishga tushirilmoqda... (${MAX_AUTO_RESTARTS - autoRestartsLeft}/${MAX_AUTO_RESTARTS})`, true);
+      startAutoScan();
+    }
+  }, AUTO_RESTART_DELAY);
+}
+
+async function boot() {
+  try {
+    const resp = await fetch("/health", { method: "GET" });
+    if (!resp.ok) return;
+  } catch {
+    return;
+  }
+  startAutoScan();
+  setInterval(() => {
+    fetch("/health", { method: "GET" }).catch(() => {});
+  }, 25 * 60 * 1000);
+}
+
+boot();

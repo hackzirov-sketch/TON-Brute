@@ -25,4 +25,7 @@ COPY app.py ./
 
 EXPOSE 10000
 
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD curl -sf http://localhost:10000/health || exit 1
+
 CMD ["python", "app.py"]

@@ -112,7 +112,7 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 26px
 .auto-seed { flex: 1; min-width: 0; overflow: hidden; padding: 10px 14px; border-radius: 10px; background: #091013; border: 1px solid var(--line); color: #c1cfcb; font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; word-break: break-all; white-space: pre-wrap; }
 .auto-found-grid { margin-top: 0; }
 
-.modal-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; }
+.modal-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; overflow-y: auto; }
 .modal-overlay[hidden] { display: none; }
 .modal-backdrop { position: absolute; inset: 0; background: rgba(4,8,10,.72); }
 .modal-panel { position: relative; width: min(540px, calc(100% - 32px)); max-height: calc(100vh - 40px); overflow-y: auto; padding: clamp(28px, 4vw, 40px); border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-strong); box-shadow: 0 40px 120px rgba(0,0,0,.45); }
@@ -127,7 +127,7 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 26px
 .setting-field small { display: block; margin-top: 6px; color: #63736f; font-size: 11px; }
 .setting-switch { margin-bottom: 28px; }
 
-.switch-row { display: flex; min-height: 72px; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 15px; background: #091013; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.switch-row { position: relative; display: flex; min-height: 72px; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 15px; background: #091013; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
 .switch-row > span:first-child { display: flex; flex-direction: column; gap: 3px; }
 .switch-row strong { font-size: 13px; font-weight: 650; }
 .switch-row small { color: var(--muted); font-size: 11px; }

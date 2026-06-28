@@ -24,6 +24,26 @@ _auto_process: subprocess.Popen | None = None
 _auto_lock = threading.Lock()
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
 
+_last_attempt_cleanup = time.monotonic()
+
+
+def _cleanup_process(p: subprocess.Popen | None) -> None:
+    if p is None:
+        return
+    try:
+        p.stdin.write('{"command":"stop"}\n')
+        p.stdin.flush()
+    except OSError:
+        pass
+    try:
+        p.kill()
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        pass
+
 
 def create_app(testing: bool = False) -> Flask:
     app = Flask(__name__)
@@ -38,6 +58,17 @@ def create_app(testing: bool = False) -> Flask:
 
     attempts: dict[str, deque[float]] = defaultdict(deque)
     attempts_lock = threading.Lock()
+
+    def _prune_stale_attempts() -> None:
+        global _last_attempt_cleanup
+        now = time.monotonic()
+        if now - _last_attempt_cleanup < 120:
+            return
+        _last_attempt_cleanup = now
+        with attempts_lock:
+            stale = [k for k, v in attempts.items() if not v or now - v[-1] > 300]
+            for k in stale:
+                del attempts[k]
 
     @app.after_request
     def security_headers(response):
@@ -54,6 +85,7 @@ def create_app(testing: bool = False) -> Flask:
             "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
             "form-action 'self'; base-uri 'none'"
         )
+        _prune_stale_attempts()
         return response
 
     @app.get("/")
@@ -77,15 +109,15 @@ def create_app(testing: bool = False) -> Flask:
             return _error("Sessiya eskirgan. Sahifani yangilang.", 403)
 
         if not request.is_json:
-            return _error("Faqat JSON so‘rov qabul qilinadi.", 415)
+            return _error("Faqat JSON so'rov qabul qilinadi.", 415)
 
         remote = request.remote_addr or "local"
         if not _within_rate_limit(attempts, attempts_lock, remote):
-            return _error("Juda ko‘p urinish. Bir daqiqadan keyin qayta urinib ko‘ring.", 429)
+            return _error("Juda ko'p urinish. Bir daqiqadan keyin qayta urinib ko'ring.", 429)
 
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
-            return _error("So‘rov formati noto‘g‘ri.", 400)
+            return _error("So'rov formati noto'g'ri.", 400)
 
         mnemonic = payload.get("mnemonic")
         network = payload.get("network", "mainnet")
@@ -96,11 +128,11 @@ def create_app(testing: bool = False) -> Flask:
         if len(mnemonic) > 512:
             return _error("Recovery phrase juda uzun.", 400)
         if network not in {"mainnet", "testnet"}:
-            return _error("Tarmoq noto‘g‘ri.", 400)
+            return _error("Tarmoq noto'g'ri.", 400)
         if not isinstance(offline, bool):
-            return _error("Offline qiymati noto‘g‘ri.", 400)
+            return _error("Offline qiymati noto'g'ri.", 400)
         if not BRIDGE_PATH.exists():
-            return _error("TON moduli yig‘ilmagan. npm run build buyrug‘ini bajaring.", 503)
+            return _error("TON moduli yig'ilmagan. npm run build buyrug'ini bajaring.", 503)
 
         result = _run_bridge(mnemonic, network, offline)
         if "error" in result:
@@ -142,16 +174,16 @@ def create_app(testing: bool = False) -> Flask:
 
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
-            return _error("Noto‘g‘ri format.", 400)
+            return _error("Noto'g'ri format.", 400)
 
         bot_token = payload.get("bot_token", "")
         user_id = payload.get("user_id", "")
         notify_enabled = payload.get("notify_enabled", False)
 
         if not isinstance(bot_token, str) or not isinstance(user_id, str):
-            return _error("Noto‘g‘ri qiymat.", 400)
+            return _error("Noto'g'ri qiymat.", 400)
         if not isinstance(notify_enabled, bool):
-            return _error("notify_enabled boolean bo‘lishi kerak.", 400)
+            return _error("notify_enabled boolean bo'lishi kerak.", 400)
         if not bot_token.strip():
             return _error("Bot token majburiy.", 400)
         if not user_id.strip():
@@ -170,6 +202,22 @@ def create_app(testing: bool = False) -> Flask:
             "has_token": bool(current["bot_token"]),
         })
 
+    def _start_bridge_process(network: str, api_key: str, max_checks: str) -> subprocess.Popen | None:
+        try:
+            interval = "400" if api_key else "1200"
+            return subprocess.Popen(
+                ["node", str(BRIDGE_AUTO_PATH), network, interval, api_key, max_checks],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                cwd=BASE_DIR,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+        except OSError:
+            return None
+
     @app.get("/api/auto/start")
     def auto_start():
         if not _is_local_request() and not app.testing:
@@ -182,7 +230,7 @@ def create_app(testing: bool = False) -> Flask:
 
             network = request.args.get("network", "mainnet")
             if network not in {"mainnet", "testnet"}:
-                return _error("Tarmoq noto‘g‘ri.", 400)
+                return _error("Tarmoq noto'g'ri.", 400)
 
             max_checks = request.args.get("max_checks", "0")
             try:
@@ -190,63 +238,71 @@ def create_app(testing: bool = False) -> Flask:
                 if max_checks_int < 0:
                     raise ValueError
             except ValueError:
-                return _error("max_checks noto‘g‘ri.", 400)
+                return _error("max_checks noto'g'ri.", 400)
 
             if not BRIDGE_AUTO_PATH.exists():
-                return _error("auto-bridge yig‘ilmagan. npm run build.", 503)
+                return _error("auto-bridge yig'ilmagan. npm run build.", 503)
 
             settings_data = _load_settings()
             api_key_arg = settings_data.get("api_key", "")
 
-            try:
-                interval = "400" if api_key_arg else "1200"
-                proc = subprocess.Popen(
-                    ["node", str(BRIDGE_AUTO_PATH), network, interval, api_key_arg, str(max_checks_int)],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    stdin=subprocess.PIPE,
-                    text=True,
-                    encoding="utf-8",
-                    cwd=BASE_DIR,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                )
-            except OSError as e:
-                return _error(f"Ishga tushmadi: {e}", 500)
-
+            proc = _start_bridge_process(network, api_key_arg, str(max_checks_int))
+            if proc is None:
+                return _error("Ishga tushmadi.", 500)
             _auto_process = proc
 
         def generate():
-            nonlocal proc
+            global _auto_process
+            max_retries = 5
+            retry = 0
+            got_stopped = False
+            current = proc
+
             try:
-                for line in iter(proc.stdout.readline, ""):
-                    if not line.strip():
-                        continue
-                    # Send Telegram notification if balance > 0 found
-                    try:
-                        payload = json.loads(line)
-                        if payload.get("type") == "result" and payload.get("hasBalance"):
-                            tg_status = _send_telegram_notification(
-                                payload.get("wallets", []), network
-                            )
-                            if tg_status:
-                                payload["telegram"] = tg_status
-                                line = json.dumps(payload, ensure_ascii=False)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                    yield f"data: {line.strip()}\n\n"
+                while retry <= max_retries:
+                    if retry > 0:
+                        newp = _start_bridge_process(network, api_key_arg, str(max_checks_int))
+                        if newp is None:
+                            yield f"data: {json.dumps({'type':'fatal','error':'Qayta ishga tushmadi'})}\n\n"
+                            break
+                        with _auto_lock:
+                            _auto_process = newp
+                        current = newp
+                        yield f"data: {json.dumps({'type':'reconnecting','attempt':retry,'max':max_retries})}\n\n"
+
+                    for line in iter(current.stdout.readline, ""):
+                        if not line.strip():
+                            continue
+                        try:
+                            payload = json.loads(line)
+                            if payload.get("type") == "result" and payload.get("hasBalance"):
+                                tg_status = _send_telegram_notification(
+                                    payload.get("wallets", []), network
+                                )
+                                if tg_status:
+                                    payload["telegram"] = tg_status
+                                    line = json.dumps(payload, ensure_ascii=False)
+                            elif payload.get("type") == "stopped":
+                                got_stopped = True
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                        yield f"data: {line.strip()}\n\n"
+
+                    if got_stopped:
+                        break
+                    if retry < max_retries:
+                        retry += 1
+                    else:
+                        yield f"data: {json.dumps({'type':'fatal','error':f'Bridge {max_retries} marta qayta ulangandan keyin ham ishlamadi.'})}\n\n"
+                        break
+
             except GeneratorExit:
                 pass
             finally:
                 with _auto_lock:
-                    if _auto_process is proc:
-                        _auto_process = None
-                try:
-                    proc.stdin.write('{"command":"stop"}\n')
-                    proc.stdin.flush()
-                except OSError:
-                    pass
-                proc.kill()
-                proc.wait(timeout=5)
+                    cur = _auto_process
+                    _auto_process = None
+                _cleanup_process(cur)
 
         return Response(generate(), content_type="text/event-stream")
 
@@ -261,13 +317,7 @@ def create_app(testing: bool = False) -> Flask:
                 return jsonify({"status": "not_running"})
             proc = _auto_process
             _auto_process = None
-            try:
-                proc.stdin.write('{"command":"stop"}\n')
-                proc.stdin.flush()
-            except OSError:
-                proc.kill()
-            proc.wait(timeout=5)
-
+        _cleanup_process(proc)
         return jsonify({"status": "stopped"})
 
     @app.post("/api/auto/pause")
@@ -281,7 +331,7 @@ def create_app(testing: bool = False) -> Flask:
                 _auto_process.stdin.write('{"command":"pause"}\n')
                 _auto_process.stdin.flush()
             except OSError:
-                pass
+                return jsonify({"status": "error", "error": "Process stdin yopiq."})
         return jsonify({"status": "paused"})
 
     @app.post("/api/auto/resume")
@@ -295,12 +345,12 @@ def create_app(testing: bool = False) -> Flask:
                 _auto_process.stdin.write('{"command":"resume"}\n')
                 _auto_process.stdin.flush()
             except OSError:
-                pass
+                return jsonify({"status": "error", "error": "Process stdin yopiq."})
         return jsonify({"status": "resumed"})
 
     @app.errorhandler(413)
     def too_large(_error_value):
-        return _error("So‘rov hajmi juda katta.", 413)
+        return _error("So'rov hajmi juda katta.", 413)
 
     return app
 
@@ -351,10 +401,10 @@ def _run_bridge(mnemonic: str, network: str, offline: bool) -> dict[str, Any]:
     try:
         result = json.loads(process.stdout)
     except (json.JSONDecodeError, TypeError):
-        return {"error": "TON modulidan noto‘g‘ri javob olindi."}
+        return {"error": "TON modulidan noto'g'ri javob olindi."}
 
     if not isinstance(result, dict):
-        return {"error": "TON modulidan noto‘g‘ri javob olindi."}
+        return {"error": "TON modulidan noto'g'ri javob olindi."}
     return result
 
 
