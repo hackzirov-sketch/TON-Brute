@@ -97,6 +97,12 @@ function appendFound(line: string): void {
   }
 }
 
+function isAuthError(err: string | undefined): boolean {
+  if (!err) return false;
+  const e = err.toLowerCase();
+  return e.includes("401") || e.includes("unauthorized") || e.includes("api_key");
+}
+
 async function main(): Promise<void> {
   const network = (process.argv[2] as Network) || "mainnet";
   const apiKey = process.argv[3] || "";
@@ -107,6 +113,7 @@ async function main(): Promise<void> {
   let avgResponseMs = intervalMs;
   let checked = 0;
   let found = 0;
+  let authErrors = 0;
   const startTime = Date.now();
   const state = loadState();
 
@@ -129,6 +136,7 @@ async function main(): Promise<void> {
       rate: elapsed > 0 ? (checked / elapsed) * 60 : 0,
       elapsed: Math.round(elapsed),
       intervalMs,
+      authErrors,
     });
   }, 3000);
 
@@ -176,16 +184,20 @@ async function main(): Promise<void> {
 
           if (result.error) {
             consecutiveGood = 0;
-            const errMsg = result.error.toLowerCase();
-            if (
-              errMsg.includes("429") ||
-              errMsg.includes("limit") ||
-              errMsg.includes("too many")
-            ) {
-              intervalMs = Math.min(Math.floor(intervalMs * 2.5), MAX_INTERVAL);
-              output({ type: "rate_limited", backoffMs: intervalMs });
+            if (isAuthError(result.error)) {
+              authErrors++;
             } else {
-              intervalMs = Math.min(Math.floor(intervalMs * 1.5), MAX_INTERVAL);
+              const errMsg = result.error.toLowerCase();
+              if (
+                errMsg.includes("429") ||
+                errMsg.includes("limit") ||
+                errMsg.includes("too many")
+              ) {
+                intervalMs = Math.min(Math.floor(intervalMs * 2.5), MAX_INTERVAL);
+                output({ type: "rate_limited", backoffMs: intervalMs });
+              } else {
+                intervalMs = Math.min(Math.floor(intervalMs * 1.5), MAX_INTERVAL);
+              }
             }
           } else {
             consecutiveGood++;
@@ -209,10 +221,10 @@ async function main(): Promise<void> {
           await delay(waitMs);
         }
 
-      if (!running) break;
-      checked++;
-      state.nonce++;
-      saveState(state);
+        if (!running) break;
+        checked++;
+        state.nonce++;
+        saveState(state);
 
         if (hasBalance) {
           found++;

@@ -37,14 +37,15 @@ settingsForm.addEventListener("submit", async (e) => {
   saveSettings.disabled = true;
   saveSettings.querySelector(".button-label").textContent = "Saqlanmoqda…";
   try {
+    const body = { notify_enabled: notifyEnabled.checked };
+    const bv = botToken.value.trim();
+    const uv = userId.value.trim();
+    if (bv) body.bot_token = bv;
+    if (uv) body.user_id = uv;
     const resp = await fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-      body: JSON.stringify({
-        bot_token: botToken.value.trim(),
-        user_id: userId.value.trim(),
-        notify_enabled: notifyEnabled.checked,
-      }),
+      body: JSON.stringify(body),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Xatolik");
@@ -127,12 +128,22 @@ const autoChecked = document.querySelector("#autoChecked");
 const autoFound = document.querySelector("#autoFound");
 const autoRate = document.querySelector("#autoRate");
 const autoInterval = document.querySelector("#autoInterval");
+const autoElapsed = document.querySelector("#autoElapsed");
 const autoStatus = document.querySelector("#autoStatus");
 const autoFoundList = document.querySelector("#autoFoundList");
 const autoCurrentSeed = document.querySelector("#autoCurrentSeed");
 const autoCurrentSeedText = document.querySelector("#autoCurrentSeedText");
 
 const MAX_FOUND_DOM = 50;
+
+function formatElapsed(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}t ${m}d`;
+  if (m > 0) return `${m}d ${s}s`;
+  return `${s}s`;
+}
 
 let autoEventSource = null;
 let autoRunning = false;
@@ -225,6 +236,10 @@ function connectSSE() {
         autoFound.textContent = data.found;
         autoRate.textContent = typeof data.rate === "number" ? data.rate.toFixed(1) : data.rate;
         if (data.intervalMs) autoInterval.textContent = data.intervalMs;
+        if (typeof data.elapsed === "number") autoElapsed.textContent = formatElapsed(data.elapsed);
+        if (data.authErrors > 0) {
+          autoShowStatus(`API xatolari: ${data.authErrors} — API key to'g'ri emas yoki yo'q`, true);
+        }
       } else if (data.type === "paused") {
         autoPause.hidden = true;
         autoResume.hidden = false;
@@ -350,6 +365,8 @@ async function boot() {
   try {
     const resp = await fetch("/health", { method: "GET" });
     if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.auto_bridge) return;
   } catch {
     return;
   }

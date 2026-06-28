@@ -23,17 +23,32 @@ export interface WalletCheck extends DerivedWallet {
   error?: string;
 }
 
+const clientCache = new Map<string, TonClient>();
+
+function getClient(network: Network, apiKey?: string): TonClient {
+  const key = `${network}:${apiKey || ""}`;
+  let client = clientCache.get(key);
+  if (!client) {
+    const endpoint = network === "mainnet"
+      ? "https://toncenter.com/api/v2/jsonRPC"
+      : "https://testnet.toncenter.com/api/v2/jsonRPC";
+    client = new TonClient({ endpoint, timeout: 15_000, apiKey });
+    clientCache.set(key, client);
+  }
+  return client;
+}
+
 export function normalizeMnemonic(input: string): string[] {
   return input.trim().toLowerCase().split(/\s+/u).filter(Boolean);
 }
 
 export async function validateOwnedMnemonic(words: string[]): Promise<void> {
   if (words.length !== 12 && words.length !== 24) {
-    throw new Error("Recovery phrase 12 yoki 24 ta so‘zdan iborat bo‘lishi kerak.");
+    throw new Error("Recovery phrase 12 yoki 24 ta so'zdan iborat bo'lishi kerak.");
   }
 
   if (!(await mnemonicValidate(words))) {
-    throw new Error("Recovery phrase TON mnemonic tekshiruvidan o‘tmadi.");
+    throw new Error("Recovery phrase TON mnemonic tekshiruvidan o'tmadi.");
   }
 }
 
@@ -92,10 +107,7 @@ export async function checkWallet(
   network: Network,
   apiKey?: string,
 ): Promise<WalletCheck> {
-  const endpoint = network === "mainnet"
-    ? "https://toncenter.com/api/v2/jsonRPC"
-    : "https://testnet.toncenter.com/api/v2/jsonRPC";
-  const client = new TonClient({ endpoint, timeout: 15_000, apiKey });
+  const client = getClient(network, apiKey);
   try {
     const state = await client.getContractState(wallet.address);
     return {
@@ -106,7 +118,7 @@ export async function checkWallet(
   } catch (error) {
     return {
       ...wallet,
-      error: error instanceof Error ? error.message : "Noma’lum API xatosi",
+      error: error instanceof Error ? error.message : "Noma'lum API xatosi",
     };
   }
 }
@@ -116,10 +128,7 @@ export async function checkWallets(
   network: Network,
   apiKey?: string,
 ): Promise<WalletCheck[]> {
-  const endpoint = network === "mainnet"
-    ? "https://toncenter.com/api/v2/jsonRPC"
-    : "https://testnet.toncenter.com/api/v2/jsonRPC";
-  const client = new TonClient({ endpoint, timeout: 15_000, apiKey });
+  const client = getClient(network, apiKey);
 
   return Promise.all(wallets.map(async (wallet): Promise<WalletCheck> => {
     try {
@@ -132,7 +141,7 @@ export async function checkWallets(
     } catch (error) {
       return {
         ...wallet,
-        error: error instanceof Error ? error.message : "Noma’lum API xatosi",
+        error: error instanceof Error ? error.message : "Noma'lum API xatosi",
       };
     }
   }));

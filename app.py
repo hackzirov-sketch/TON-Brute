@@ -46,6 +46,10 @@ def _cleanup_process(p: subprocess.Popen | None) -> None:
         p.wait(timeout=3)
     except subprocess.TimeoutExpired:
         pass
+    try:
+        p.kill()
+    except OSError:
+        pass
 
 
 def _drain_stderr(p: subprocess.Popen) -> None:
@@ -113,7 +117,11 @@ def create_app(testing: bool = False) -> Flask:
 
     @app.get("/health")
     def health():
-        return jsonify({"ok": BRIDGE_PATH.exists()})
+        return jsonify({
+            "ok": BRIDGE_PATH.exists() and BRIDGE_AUTO_PATH.exists(),
+            "bridge": BRIDGE_PATH.exists(),
+            "auto_bridge": BRIDGE_AUTO_PATH.exists(),
+        })
 
     @app.post("/api/recover")
     def recover():
@@ -166,7 +174,7 @@ def create_app(testing: bool = False) -> Flask:
 
     @app.get("/api/settings")
     def get_settings():
-        if not _is_local_request() and not app.testing:
+        if not _is_local_request() and not IS_RENDER and not app.testing:
             return _error("Faqat localhost.", 403)
         data = _load_settings()
         return jsonify({
@@ -178,7 +186,7 @@ def create_app(testing: bool = False) -> Flask:
 
     @app.post("/api/settings")
     def save_settings():
-        if not _is_local_request() and not app.testing:
+        if not _is_local_request() and not IS_RENDER and not app.testing:
             return _error("Faqat localhost.", 403)
 
         expected_token = session.get("csrf_token")
@@ -201,22 +209,20 @@ def create_app(testing: bool = False) -> Flask:
             return _error("Noto'g'ri qiymat.", 400)
         if not isinstance(notify_enabled, bool):
             return _error("notify_enabled boolean bo'lishi kerak.", 400)
-        if not bot_token.strip():
-            return _error("Bot token majburiy.", 400)
-        if not user_id.strip():
-            return _error("Telegram User ID majburiy.", 400)
 
         current = _load_settings()
-        current["bot_token"] = bot_token.strip()
-        current["user_id"] = user_id.strip()
+        if bot_token.strip():
+            current["bot_token"] = bot_token.strip()
+        if user_id.strip():
+            current["user_id"] = user_id.strip()
         current["notify_enabled"] = notify_enabled
         _save_settings(current)
 
         return jsonify({
-            "bot_token": _mask_token(current["bot_token"]),
-            "user_id": current["user_id"],
-            "notify_enabled": current["notify_enabled"],
-            "has_token": bool(current["bot_token"]),
+            "bot_token": _mask_token(current.get("bot_token", "")),
+            "user_id": current.get("user_id", ""),
+            "notify_enabled": current.get("notify_enabled", False),
+            "has_token": bool(current.get("bot_token", "")),
         })
 
     def _start_bridge_process(network: str, api_key: str, max_checks: str) -> subprocess.Popen | None:
@@ -301,6 +307,8 @@ def create_app(testing: bool = False) -> Flask:
                                     payload["telegram"] = tg_status
                                     line = json.dumps(payload, ensure_ascii=False)
                             elif payload.get("type") == "stopped":
+                                got_stopped = True
+                            elif payload.get("type") == "fatal":
                                 got_stopped = True
                         except (json.JSONDecodeError, TypeError):
                             pass
@@ -432,14 +440,19 @@ def _error(message: str, status: int):
 
 def _load_settings() -> dict[str, Any]:
     dflt = {"bot_token": "", "user_id": "", "notify_enabled": False, "api_key": ""}
-    env = {
-        "bot_token": os.environ.get("BOT_TOKEN", ""),
-        "user_id": os.environ.get("USER_ID", ""),
-        "notify_enabled": os.environ.get("NOTIFY_ENABLED", "").lower() in ("1", "true", "yes"),
-        "api_key": os.environ.get("API_KEY", ""),
-    }
-    if any(v for v in env.values()):
-        return env
+    env_bot = os.environ.get("BOT_TOKEN", "")
+    env_user = os.environ.get("USER_ID", "")
+    env_notify = os.environ.get("NOTIFY_ENABLED", "").lower() in ("1", "true", "yes")
+    env_api = os.environ.get("API_KEY", "")
+
+    if env_bot or env_user or env_api:
+        return {
+            "bot_token": env_bot,
+            "user_id": env_user,
+            "notify_enabled": env_notify,
+            "api_key": env_api,
+        }
+
     if not SETTINGS_PATH.exists():
         return dflt
     try:
