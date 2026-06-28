@@ -6,7 +6,6 @@ import {
   writeFileSync,
   appendFileSync,
 } from "node:fs";
-import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import {
   generateMnemonic,
@@ -100,22 +99,16 @@ function appendFound(line: string): void {
 
 async function main(): Promise<void> {
   const network = (process.argv[2] as Network) || "mainnet";
-  const apiKey = process.argv[4] || "";
-  const maxChecks = parseInt(process.argv[5] || "0", 10) || Infinity;
+  const apiKey = process.argv[3] || "";
+  const maxChecks = parseInt(process.argv[4] || "0", 10) || Infinity;
 
   let intervalMs = apiKey ? 400 : 1200;
   let consecutiveGood = 0;
   let avgResponseMs = intervalMs;
+  let checked = 0;
   let found = 0;
   const startTime = Date.now();
   const state = loadState();
-
-  if (state.nonce === 0) {
-    const buf = randomBytes(8);
-    state.nonce = Number(buf.readBigUInt64BE(0) % 10_000_000_000_000_000n);
-    if (state.nonce < 1) state.nonce = 1;
-    saveState(state);
-  }
 
   output({
     type: "started",
@@ -130,16 +123,17 @@ async function main(): Promise<void> {
     const elapsed = (Date.now() - startTime) / 1000;
     output({
       type: "progress",
-      checked: state.nonce,
+      checked,
+      total: state.nonce,
       found,
-      rate: elapsed > 0 ? (state.nonce / elapsed) * 60 : 0,
+      rate: elapsed > 0 ? (checked / elapsed) * 60 : 0,
       elapsed: Math.round(elapsed),
       intervalMs,
     });
   }, 3000);
 
   try {
-    while (running && state.nonce < maxChecks) {
+    while (running && checked < maxChecks) {
       while (paused && running) {
         await delay(500);
       }
@@ -216,8 +210,9 @@ async function main(): Promise<void> {
         }
 
       if (!running) break;
+      checked++;
       state.nonce++;
-        saveState(state);
+      saveState(state);
 
         if (hasBalance) {
           found++;
@@ -247,9 +242,9 @@ async function main(): Promise<void> {
 
   output({
     type: "stopped",
-    checked: state.nonce,
+    checked,
     found,
-    reason: state.nonce >= maxChecks ? "range_tugadi" : "to'xtatildi",
+    reason: checked >= maxChecks ? "range_tugadi" : "to'xtatildi",
   });
 }
 

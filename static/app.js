@@ -253,6 +253,7 @@ function connectSSE() {
         autoPause.hidden = true;
         autoResume.hidden = true;
         autoShowStatus(data.error || "Xatolik yuz berdi.", true);
+        autoRunning = false;
         autoRestartAfterDelay();
       }
     } catch {
@@ -273,6 +274,7 @@ function connectSSE() {
       autoCurrentSeedText.textContent = `Qayta ulanmoqda (${autoReconnectAttempts}/${MAX_RECONNECT})...`;
       setTimeout(connectSSE, backoff);
     } else if (autoRunning) {
+      autoRunning = false;
       autoShowStatus("Ulanish uzildi. Qayta ulanmoqda...", true);
       autoRestartAfterDelay();
     }

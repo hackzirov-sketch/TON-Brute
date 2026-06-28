@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import subprocess
+import sys
 import threading
 import time
 import webbrowser
@@ -26,6 +27,8 @@ LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
 
 _last_attempt_cleanup = time.monotonic()
 
+IS_RENDER = bool(os.environ.get("RENDER"))
+
 
 def _cleanup_process(p: subprocess.Popen | None) -> None:
     if p is None:
@@ -42,6 +45,15 @@ def _cleanup_process(p: subprocess.Popen | None) -> None:
     try:
         p.wait(timeout=3)
     except subprocess.TimeoutExpired:
+        pass
+
+
+def _drain_stderr(p: subprocess.Popen) -> None:
+    try:
+        for line in iter(p.stderr.readline, ""):
+            if line.strip():
+                print(f"[bridge] {line.strip()}", file=sys.stderr)
+    except Exception:
         pass
 
 
@@ -72,8 +84,13 @@ def create_app(testing: bool = False) -> Flask:
 
     @app.after_request
     def security_headers(response):
-        response.headers["Cache-Control"] = "no-store, max-age=0"
-        response.headers["Pragma"] = "no-cache"
+        if response.content_type and "text/event-stream" in response.content_type:
+            response.headers["Cache-Control"] = "no-cache"
+            response.headers["X-Accel-Buffering"] = "no"
+            response.headers["Connection"] = "keep-alive"
+        else:
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+            response.headers["Pragma"] = "no-cache"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -204,9 +221,8 @@ def create_app(testing: bool = False) -> Flask:
 
     def _start_bridge_process(network: str, api_key: str, max_checks: str) -> subprocess.Popen | None:
         try:
-            interval = "400" if api_key else "1200"
             return subprocess.Popen(
-                ["node", str(BRIDGE_AUTO_PATH), network, interval, api_key, max_checks],
+                ["node", str(BRIDGE_AUTO_PATH), network, api_key, max_checks],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.PIPE,
@@ -220,7 +236,7 @@ def create_app(testing: bool = False) -> Flask:
 
     @app.get("/api/auto/start")
     def auto_start():
-        if not _is_local_request() and not app.testing:
+        if not _is_local_request() and not IS_RENDER and not app.testing:
             return _error("Faqat localhost.", 403)
 
         global _auto_process
@@ -250,6 +266,7 @@ def create_app(testing: bool = False) -> Flask:
             if proc is None:
                 return _error("Ishga tushmadi.", 500)
             _auto_process = proc
+            threading.Thread(target=_drain_stderr, args=(proc,), daemon=True).start()
 
         def generate():
             global _auto_process
@@ -268,6 +285,7 @@ def create_app(testing: bool = False) -> Flask:
                         with _auto_lock:
                             _auto_process = newp
                         current = newp
+                        threading.Thread(target=_drain_stderr, args=(newp,), daemon=True).start()
                         yield f"data: {json.dumps({'type':'reconnecting','attempt':retry,'max':max_retries})}\n\n"
 
                     for line in iter(current.stdout.readline, ""):
@@ -308,7 +326,7 @@ def create_app(testing: bool = False) -> Flask:
 
     @app.post("/api/auto/stop")
     def auto_stop():
-        if not _is_local_request() and not app.testing:
+        if not _is_local_request() and not IS_RENDER and not app.testing:
             return _error("Faqat localhost.", 403)
 
         global _auto_process
@@ -322,7 +340,7 @@ def create_app(testing: bool = False) -> Flask:
 
     @app.post("/api/auto/pause")
     def auto_pause():
-        if not _is_local_request() and not app.testing:
+        if not _is_local_request() and not IS_RENDER and not app.testing:
             return _error("Faqat localhost.", 403)
         with _auto_lock:
             if _auto_process is None:
@@ -336,7 +354,7 @@ def create_app(testing: bool = False) -> Flask:
 
     @app.post("/api/auto/resume")
     def auto_resume():
-        if not _is_local_request() and not app.testing:
+        if not _is_local_request() and not IS_RENDER and not app.testing:
             return _error("Faqat localhost.", 403)
         with _auto_lock:
             if _auto_process is None:
@@ -515,7 +533,7 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    if os.environ.get("RENDER"):
+    if IS_RENDER:
         import gunicorn.app.base  # type: ignore
 
         host = os.environ.get("HOST", "0.0.0.0")
@@ -538,7 +556,7 @@ if __name__ == "__main__":
             "bind": f"{host}:{port}",
             "workers": 1,
             "threads": 4,
-            "timeout": 120,
+            "timeout": 0,
         }).run()
     else:
         from waitress import serve
