@@ -1,0 +1,21 @@
+{
+  "name": "solfinder",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Solana random wallet scanner with Telegram notifications",
+  "type": "module",
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "start": "node dist/scanner.js"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
