@@ -7,5 +7,7 @@ __pycache__/
 *.log
 coverage/
 settings.json
+state.json
+found_wallets.txt
 checked_seeds.txt
 found_wallets.txt

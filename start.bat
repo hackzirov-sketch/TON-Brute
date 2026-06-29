@@ -7,11 +7,19 @@ if not exist ".venv\Scripts\python.exe" (
   pause
   exit /b 1
 )
-if not exist "dist\bridge.js" (
+if not exist "dist\auto-bridge.js" (
   echo TON moduli topilmadi. setup.bat faylini qayta ishga tushiring.
   pause
   exit /b 1
 )
 
-call ".venv\Scripts\python.exe" app.py
+echo.
+echo  ========================================
+echo   TONfinder Scanner Service
+echo  ========================================
+echo.
+echo  Servisni to'xtatish uchun Ctrl+C bosing
+echo.
+
+call ".venv\Scripts\python.exe" run.py
 if errorlevel 1 pause
