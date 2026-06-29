@@ -81,12 +81,18 @@ def main() -> None:
     print()
 
     settings = load_settings()
-    token = settings.get("bot_token", "").strip()
-    user_id = settings.get("user_id", "").strip()
-    notify_enabled = settings.get("notify_enabled", False)
-    api_key = settings.get("toncenter_api_key", "") or settings.get("api_key", "")
+    token = os.environ.get("TONFINDER_BOT_TOKEN", "") or settings.get("bot_token", "")
+    token = token.strip()
+    user_id = os.environ.get("TONFINDER_USER_ID", "") or settings.get("user_id", "")
+    user_id = user_id.strip()
+    notify_enabled_str = os.environ.get("TONFINDER_NOTIFY_ENABLED", "")
+    if notify_enabled_str:
+        notify_enabled = notify_enabled_str.lower() in ("1", "true", "yes")
+    else:
+        notify_enabled = settings.get("notify_enabled", False)
+    api_key = os.environ.get("TONCENTER_API_KEY", "") or settings.get("toncenter_api_key", "") or settings.get("api_key", "")
     api_key = api_key.strip()
-    stats_interval = int(settings.get("stats_interval", 1000))
+    stats_interval = int(os.environ.get("TONFINDER_STATS_INTERVAL", "0")) or int(settings.get("stats_interval", 1000))
 
     if not token or not user_id:
         print("  [WARN] Bot token yoki User ID sozlanmagan.")
